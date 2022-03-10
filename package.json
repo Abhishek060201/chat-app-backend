@@ -17,7 +17,9 @@
     "none"
   ],
   "dependencies": {
+    "dotenv": "^16.0.0",
     "express": "^4.17.3",
+    "jsonwebtoken": "^8.5.1",
     "socket.io": "^4.4.1"
   },
   "devDependencies": {
