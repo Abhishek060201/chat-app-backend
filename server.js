@@ -6,7 +6,6 @@ const http = require('http')
 const cors = require('cors')
 const { Server } = require('socket.io')
 const mongoose = require('mongoose')
-
 const jwt = require('jsonwebtoken')
 
 app.use(express.json())
@@ -15,27 +14,60 @@ app.use(cors())
 // <MongoDB>
 const url = process.env.ATLAS_URI
 
-mongoose.connect(url)
+mongoose.connect(url, (err) => {
+  if (err) return console.log(err)
+  console.log('Connected to Database')
+})
 
-const db = mongoose.connection;
-
-db.on('error', () => console.log('couldnt connect to database'))
-db.once('connected', () => console.log('connected to database'))
-
-const chatSchema = mongoose.Schema({
+const chatSchema = new mongoose.Schema({
   author: String,
   message: String
 })
 
-function updateDatabase(roomID, author, message) {
-  const chatModel = mongoose.model(roomID, chatSchema)
+const userSchema = new mongoose.Schema({
+  username: String,
+  email: String,
+  password: String
+})
 
-  const doc = new chatModel({
+async function updateRoom(roomID, author, message) {
+  const Chat = mongoose.model(roomID, chatSchema, roomID)
+
+  const chat = new Chat({
     author: author,
     message: message
   })
+  await chat.save()
+}
 
-  db.collection(roomID).insertOne(doc)
+async function addUser(username, email, password) {
+  const User = mongoose.model('users', userSchema, 'users')
+
+  const userExists = await User.findOne({ username })
+  const emailExists = await User.findOne({ email })
+  if(userExists) {
+    return 'userExists'
+  }
+  if(emailExists) {
+    return 'emailExists'
+  }
+
+  const user = new User({
+    username,
+    email,
+    password
+  })
+  await user.save()
+}
+
+async function authenticateUser(username,  password) {
+  const User = mongoose.model('users', userSchema, 'users')
+
+  const userExists = await User.findOne({ username })
+  if(!userExists) {
+    return 'userNotFound'
+  }
+  console.log('foundUser:', userExists)
 }
 // </MongoDB>
 
@@ -50,18 +82,24 @@ const posts = [
   }
 ]
 
+
 app.get('/posts', authenticateToken, (req, res) => {
   res.json(posts.filter(post => post.username === req.user.name))
 })
 
-app.post('/login', (req, res) => {
-  // Authenticate User
+app.post('/signup', async (req, res) => {
+  // console.log(req.body)
+  const response = await addUser(req.body.username, req.body.email, req.body.password)
 
-  const username = req.body.username
-  const user = { name: username }
-
-  const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET)
-  res.json({ accessToken: accessToken })
+  if(response === 'userExists') {
+    res.status(208).send('User already exists, try another username')
+    return
+  }
+  if(response === 'emailExists') {
+    res.status(208).send('Email already registered')
+    return
+  }
+  res.status(201).send('User added successfully')
 })
 
 function authenticateToken(req, res, next) {
@@ -80,9 +118,20 @@ function authenticateToken(req, res, next) {
   })
 }
 
-const server = http.createServer(app);
+app.post('/login', async (req, res) => {
+  // Authenticate User
+  await authenticateUser(req.body.username, req.body.password)
 
-// <Socket>
+
+  // const username = req.body.username
+  // const user = { name: username }
+
+  // const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET)
+  // res.json({ accessToken: accessToken })
+})
+
+// Creating server with cors 
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: 'http://localhost:3000',
@@ -90,6 +139,7 @@ const io = new Server(server, {
   }
 })
 
+// <Socket>
 io.on('connection', (socket) => {
   console.log(socket.id, 'has Connected');
 
@@ -104,7 +154,7 @@ io.on('connection', (socket) => {
     const author = data.author
     socket.to(roomID).emit('receive_message', data)
 
-    updateDatabase(roomID, author, message)
+    updateRoom(roomID, author, message)
   })
 
   socket.on('disconnect', () => {
