@@ -7,6 +7,7 @@ const cors = require('cors')
 const { Server } = require('socket.io')
 const mongoose = require('mongoose')
 const jwt = require('jsonwebtoken')
+const { json } = require('body-parser')
 
 app.use(express.json())
 app.use(cors())
@@ -19,9 +20,13 @@ mongoose.connect(url, (err) => {
   console.log('Connected to Database')
 })
 
+const connection = mongoose.connection;
+
 const chatSchema = new mongoose.Schema({
   author: String,
-  message: String
+  message: String,
+  roomID: String,
+  time: String
 })
 
 const userSchema = new mongoose.Schema({
@@ -30,12 +35,14 @@ const userSchema = new mongoose.Schema({
   password: String
 })
 
-async function updateRoom(roomID, author, message) {
+async function updateRoom(roomID, author, message, time) {
   const Chat = mongoose.model(roomID, chatSchema, roomID)
 
   const chat = new Chat({
     author: author,
-    message: message
+    message: message,
+    roomID: roomID,
+    time: time
   })
   await chat.save()
 }
@@ -45,10 +52,10 @@ async function addUser(username, email, password) {
 
   const userExists = await User.findOne({ username })
   const emailExists = await User.findOne({ email })
-  if(userExists) {
+  if (userExists) {
     return 'userExists'
   }
-  if(emailExists) {
+  if (emailExists) {
     return 'emailExists'
   }
 
@@ -60,14 +67,17 @@ async function addUser(username, email, password) {
   await user.save()
 }
 
-async function authenticateUser(username,  password) {
+async function authenticateUser(username, password) {
   const User = mongoose.model('users', userSchema, 'users')
 
-  const userExists = await User.findOne({ username })
-  if(!userExists) {
+  const userDetails = await User.findOne({ username })
+  if (!userDetails) {
     return 'userNotFound'
   }
-  console.log('foundUser:', userExists)
+  if (userDetails.password !== password) {
+    return 'wrongPassword'
+  }
+  return 'successful'
 }
 // </MongoDB>
 
@@ -82,55 +92,39 @@ const posts = [
   }
 ]
 
-
-app.get('/posts', authenticateToken, (req, res) => {
-  res.json(posts.filter(post => post.username === req.user.name))
-})
-
 app.post('/signup', async (req, res) => {
-  // console.log(req.body)
+  console.log('singed-up:', req.body)
   const response = await addUser(req.body.username, req.body.email, req.body.password)
 
-  if(response === 'userExists') {
-    res.status(208).send('User already exists, try another username')
-    return
+  if (response === 'userExists') {
+    return res.status(208).send('User already exists, try another username')
   }
-  if(response === 'emailExists') {
-    res.status(208).send('Email already registered')
-    return
+  if (response === 'emailExists') {
+    return res.status(208).send('Email already registered')
   }
   res.status(201).send('User added successfully')
 })
 
-function authenticateToken(req, res, next) {
-  // Bearer TOKEN
-  const authHeader = req.headers['authorization']
-  const token = authHeader && authHeader.split(' ')[1]
-
-  if (token == null) return res.sendStatus(401)
-
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
-    // Invalid Token
-    if (err) return res.sendStatus(403)
-    // Valid Token
-    req.user = user
-    next()
-  })
-}
-
 app.post('/login', async (req, res) => {
   // Authenticate User
-  await authenticateUser(req.body.username, req.body.password)
+  const loginMessage = await authenticateUser(req.body.username, req.body.password)
 
+  if (loginMessage === 'userNotFound') {
+    return res.status(400).send('Signup to use the Chat')
+  }
+  if (loginMessage === 'wrongPassword') {
+    return res.status(400).send('Incorrect password')
+  }
 
-  // const username = req.body.username
-  // const user = { name: username }
+  console.log('Logged-in:', req.body)
 
-  // const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET)
-  // res.json({ accessToken: accessToken })
+  const username = req.body.username
+  const user = { name: username }
+
+  const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET)
+  res.json({ accessToken: accessToken })
 })
 
-// Creating server with cors 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -140,28 +134,66 @@ const io = new Server(server, {
 })
 
 // <Socket>
-io.on('connection', (socket) => {
-  console.log(socket.id, 'has Connected');
-
-  socket.on('join_room', (roomID) => {
-    socket.join(roomID)
-    console.log(socket.id, 'joined room', roomID);
-  })
-
-  socket.on('send_message', (data) => {
-    const roomID = data.room
-    const message = data.message
-    const author = data.author
-    socket.to(roomID).emit('receive_message', data)
-
-    updateRoom(roomID, author, message)
-  })
-
-  socket.on('disconnect', () => {
-    console.log(socket.id, 'has Disconnected');
-  })
+io.use(function (socket, next) {
+  if (socket.handshake.query && socket.handshake.query.token) {
+    jwt.verify(socket.handshake.query.token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+      if (err) return next(new Error('Authentication error'));
+      socket.decoded = decoded;
+      next();
+    });
+  }
+  else {
+    next(new Error('Authentication error'));
+  }
 })
-// </Socket>
+  .on('connection', (socket) => {
+    console.log(socket.id, 'has Connected');
+
+    socket.on('join_room', async (roomID) => {
+      socket.join(roomID)
+      console.log(socket.id, 'joined room', roomID);
+
+      var coll = connection.collection(roomID)
+      await coll.find({}).toArray(function (err, result) {
+        if (err) {
+          console.log('err:', err)
+        } else {
+          socket.emit('receive_old_messages', result)
+        }
+      })
+
+      socket.on('send_message', (data) => {
+        const roomID = data.room
+        const message = data.message
+        const author = data.author
+        const time = data.time
+        socket.to(roomID).emit('receive_message', data)
+
+        updateRoom(roomID, author, message, time)
+      })
+
+      socket.on('disconnect', () => {
+        console.log(socket.id, 'has Disconnected');
+      })
+    })
+  })
+// </Socket>   
 
 
 server.listen(3001, () => console.log('SERVER RUNNING'));
+
+// function authenticateToken(req, res, next) {
+//   // Bearer TOKEN
+//   const authHeader = req.headers['authorization']
+//   const token = authHeader && authHeader.split(' ')[1]
+
+//   if (token == null) return res.sendStatus(401)
+
+//   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
+//     // Invalid Token
+//     if (err) return res.sendStatus(403)
+//     // Valid Token
+//     req.user = user
+//     next()
+//   })
+// }
