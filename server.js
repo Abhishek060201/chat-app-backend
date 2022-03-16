@@ -148,9 +148,14 @@ io.use(function (socket, next) {
 })
   .on('connection', (socket) => {
     console.log(socket.id, 'has Connected');
+    var roomId;
+    var username;
 
-    socket.on('join_room', async (roomID) => {
+    socket.on('join_room', async (data) => {
+      roomID = data.room;
+      username = data.username;
       socket.join(roomID)
+      socket.to(roomID).emit('alert_message', `${username} has entered the room`)
       console.log(socket.id, 'joined room', roomID);
 
       var coll = connection.collection(roomID)
@@ -173,6 +178,8 @@ io.use(function (socket, next) {
       })
 
       socket.on('disconnect', () => {
+        socket.to(roomID).emit('alert_message', `${username} has left the room`)
+        console.log(socket.id, 'joined room', roomID);
         console.log(socket.id, 'has Disconnected');
       })
     })
