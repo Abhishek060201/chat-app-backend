@@ -7,7 +7,6 @@ const cors = require('cors')
 const { Server } = require('socket.io')
 const mongoose = require('mongoose')
 const jwt = require('jsonwebtoken')
-const { json } = require('body-parser')
 
 app.use(express.json())
 app.use(cors())
@@ -81,17 +80,6 @@ async function authenticateUser(username, password) {
 }
 // </MongoDB>
 
-const posts = [
-  {
-    username: 'Kyle',
-    title: 'Post 1'
-  },
-  {
-    username: 'Jim',
-    title: 'Post 2'
-  }
-]
-
 app.post('/signup', async (req, res) => {
   console.log('singed-up:', req.body)
   const response = await addUser(req.body.username, req.body.email, req.body.password)
@@ -129,7 +117,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: 'http://localhost:3000',
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST']
   }
 })
 
@@ -137,26 +125,25 @@ const io = new Server(server, {
 io.use(function (socket, next) {
   if (socket.handshake.query && socket.handshake.query.token) {
     jwt.verify(socket.handshake.query.token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
-      if (err) return next(new Error('Authentication error'));
-      socket.decoded = decoded;
+      if (err) return next(new Error('Authentication error'))
+      socket.decoded = decoded
       next();
     });
   }
   else {
-    next(new Error('Authentication error'));
+    next(new Error('Authentication error'))
   }
 })
   .on('connection', (socket) => {
-    console.log(socket.id, 'has Connected');
-    var roomId;
-    var username;
+    console.log(socket.id, 'has Connected')
+    var username
 
     socket.on('join_room', async (data) => {
       roomID = data.room;
-      username = data.username;
+      username = data.username
       socket.join(roomID)
       socket.to(roomID).emit('alert_message', `${username} has entered the room`)
-      console.log(socket.id, 'joined room', roomID);
+      console.log(socket.id, 'joined room', roomID)
 
       var coll = connection.collection(roomID)
       await coll.find({}).toArray(function (err, result) {
@@ -179,15 +166,15 @@ io.use(function (socket, next) {
 
       socket.on('disconnect', () => {
         socket.to(roomID).emit('alert_message', `${username} has left the room`)
-        console.log(socket.id, 'joined room', roomID);
-        console.log(socket.id, 'has Disconnected');
+        console.log(socket.id, 'joined room', roomID)
+        console.log(socket.id, 'has Disconnected')
       })
     })
   })
 // </Socket>   
 
 
-server.listen(3001, () => console.log('SERVER RUNNING'));
+server.listen(3001, () => console.log('SERVER RUNNING'))
 
 // function authenticateToken(req, res, next) {
 //   // Bearer TOKEN
