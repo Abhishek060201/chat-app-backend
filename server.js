@@ -8,6 +8,8 @@ const { Server } = require('socket.io')
 const mongoose = require('mongoose')
 const jwt = require('jsonwebtoken')
 
+const PORT = process.env.PORT || 3001;
+
 app.use(express.json())
 app.use(cors())
 
@@ -116,7 +118,7 @@ app.post('/login', async (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:3000',
+    origin: 'https://abhishek-chat-app-1.netlify.app/',
     methods: ['GET', 'POST']
   }
 })
@@ -174,7 +176,7 @@ io.use(function (socket, next) {
 // </Socket>   
 
 
-server.listen(3001, () => console.log('SERVER RUNNING'))
+server.listen(PORT, () => console.log('SERVER RUNNING'))
 
 // function authenticateToken(req, res, next) {
 //   // Bearer TOKEN
