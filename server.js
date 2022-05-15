@@ -118,7 +118,7 @@ app.post('/login', async (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'https://abhishek-chat-app-1.netlify.app/',
+    origin: 'https://abhishek-chat-app-1.netlify.app/login',
     methods: ['GET', 'POST']
   }
 })
